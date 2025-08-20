@@ -17,7 +17,7 @@
           "signer": true
         },
         {
-          "name": "counter",
+          "name": "",
           "writable": true
         }
       ],

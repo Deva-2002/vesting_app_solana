@@ -1,76 +1,143 @@
-import * as anchor from '@coral-xyz/anchor'
-import { Program } from '@coral-xyz/anchor'
-import { Keypair } from '@solana/web3.js'
-import { Counter } from '../target/types/counter'
+import * as anchor from "@coral-xyz/anchor";
+import { Program } from "@coral-xyz/anchor";
+import { PublicKey, SystemProgram, Keypair } from "@solana/web3.js";
+import {
+  TOKEN_PROGRAM_ID,
+  getAccount,
+  createMint,
+  mintTo,
+  getAssociatedTokenAddressSync,
+} from "@solana/spl-token";
+import { Vesting } from "../target/types/vesting";
 
-describe('counter', () => {
-  // Configure the client to use the local cluster.
-  const provider = anchor.AnchorProvider.env()
-  anchor.setProvider(provider)
-  const payer = provider.wallet as anchor.Wallet
+describe("vesting program", () => {
+  const provider = anchor.AnchorProvider.env();
+  anchor.setProvider(provider);
+  const payer = provider.wallet as anchor.Wallet;
+  const program = anchor.workspace.Vesting as Program<Vesting>;
 
-  const program = anchor.workspace.Counter as Program<Counter>
+  let mint: PublicKey;
+  let vestingAccountPda: PublicKey;
+  let vestingAccountBump: number;
+  let treasuryTokenPda: PublicKey;
+  let treasuryBump: number;
 
-  const counterKeypair = Keypair.generate()
+  const companyName = "TestCompany";
+  const beneficiary = Keypair.generate();
+  let employeeAccountPda: PublicKey;
+  let employeeBump: number;
+  let employeeAta: PublicKey;
 
-  it('Initialize Counter', async () => {
+  it("Create mint + initialize vesting account", async () => {
+    // 1. Create mint
+    mint = await createMint(
+      provider.connection,
+      payer.payer, // fee payer
+      payer.publicKey, // mint authority
+      null, // freeze authority
+      6 // decimals
+    );
+
+    // 2. Derive PDA for vesting account
+    [vestingAccountPda, vestingAccountBump] =
+      PublicKey.findProgramAddressSync(
+        [Buffer.from(companyName)],
+        program.programId
+      );
+
+    [treasuryTokenPda, treasuryBump] = PublicKey.findProgramAddressSync(
+      [Buffer.from("vesting_treasury"), Buffer.from(companyName)],
+      program.programId
+    );
+
+    // 3. Call instruction
     await program.methods
-      .initialize()
+      .createVestingAccount(companyName)
       .accounts({
-        counter: counterKeypair.publicKey,
-        payer: payer.publicKey,
+        signer: payer.publicKey,
+        //@ts-ignore
+        vestingAccount: vestingAccountPda,
+        mint,
+        treasuryTokenAccount: treasuryTokenPda,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
       })
-      .signers([counterKeypair])
-      .rpc()
+      .rpc();
 
-    const currentCount = await program.account.counter.fetch(counterKeypair.publicKey)
+    const state = await program.account.vestingAccount.fetch(vestingAccountPda);
+    console.log("Vesting account:", state);
+  });
 
-    expect(currentCount.count).toEqual(0)
-  })
+  it("Create employee account", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const start = now;
+    const cliff = now + 5; // 5 sec cliff
+    const end = now + 20; // vesting ends after 20 sec
+    const total = 1000;
 
-  it('Increment Counter', async () => {
-    await program.methods.increment().accounts({ counter: counterKeypair.publicKey }).rpc()
+    [employeeAccountPda, employeeBump] = PublicKey.findProgramAddressSync(
+      [Buffer.from("employee_account"), beneficiary.publicKey.toBuffer()],
+      program.programId
+    );
 
-    const currentCount = await program.account.counter.fetch(counterKeypair.publicKey)
-
-    expect(currentCount.count).toEqual(1)
-  })
-
-  it('Increment Counter Again', async () => {
-    await program.methods.increment().accounts({ counter: counterKeypair.publicKey }).rpc()
-
-    const currentCount = await program.account.counter.fetch(counterKeypair.publicKey)
-
-    expect(currentCount.count).toEqual(2)
-  })
-
-  it('Decrement Counter', async () => {
-    await program.methods.decrement().accounts({ counter: counterKeypair.publicKey }).rpc()
-
-    const currentCount = await program.account.counter.fetch(counterKeypair.publicKey)
-
-    expect(currentCount.count).toEqual(1)
-  })
-
-  it('Set counter value', async () => {
-    await program.methods.set(42).accounts({ counter: counterKeypair.publicKey }).rpc()
-
-    const currentCount = await program.account.counter.fetch(counterKeypair.publicKey)
-
-    expect(currentCount.count).toEqual(42)
-  })
-
-  it('Set close the counter account', async () => {
     await program.methods
-      .close()
+      .createEmployeeAccount(new anchor.BN(start), new anchor.BN(end), new anchor.BN(cliff), new anchor.BN(total))
       .accounts({
-        payer: payer.publicKey,
-        counter: counterKeypair.publicKey,
+        //@ts-ignore
+        owner: payer.publicKey,
+        beneficiary: beneficiary.publicKey,
+        vestingAccount: vestingAccountPda,
+        employeeAccount: employeeAccountPda,
+        systemProgram: SystemProgram.programId,
       })
-      .rpc()
+      .rpc();
 
-    // The account should no longer exist, returning null.
-    const userAccount = await program.account.counter.fetchNullable(counterKeypair.publicKey)
-    expect(userAccount).toBeNull()
+    const employeeState = await program.account.employeeAccount.fetch(
+      employeeAccountPda
+    );
+    console.log("Employee account:", employeeState);
+  });
+
+  it("Claim tokens (after cliff)", async () => {
+    // mint some tokens to treasury first (simulating funding vesting pool)
+    await mintTo(
+      provider.connection,
+      payer.payer,
+      mint,
+      treasuryTokenPda,
+      payer.publicKey,
+      1_000_000 // 1M tokens
+    );
+
+    // derive employee ATA
+    employeeAta = getAssociatedTokenAddressSync(mint, beneficiary.publicKey);
+
+    // wait until cliff passes
+    await new Promise((resolve) => setTimeout(resolve, 6000));
+
+    await program.methods
+  .claimToken(companyName)
+  .accounts({
+        //@ts-ignore
+    beneficiary: beneficiary.publicKey,  
+    employeeAccount: employeeAccountPda,
+    vestingAccount: vestingAccountPda,
+    mint,
+    treasuryTokenAccount: treasuryTokenPda,
+    employeeTokenAccount: employeeAta,
+    systemProgram: SystemProgram.programId,
+    associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+    tokenProgram: TOKEN_PROGRAM_ID,
   })
-})
+  .signers([beneficiary]) // ✅ must include full Keypair as signer
+  .rpc();
+
+    const employeeState = await program.account.employeeAccount.fetch(
+      employeeAccountPda
+    );
+    console.log("Employee state after claim:", employeeState);
+
+    const ataInfo = await getAccount(provider.connection, employeeAta);
+    console.log("Beneficiary ATA balance:", ataInfo.amount.toString());
+  });
+});
