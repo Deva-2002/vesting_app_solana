@@ -1,5 +1,30 @@
 # vestingapp
 
+# Vesting dApp
+
+A Solana-based token vesting application built with **Anchor**, **React**, and **TypeScript**.  
+This dApp allows companies to create vesting accounts and allocate tokens to employees with configurable vesting schedules (start time, end time, cliff, and total amount).  
+
+---
+
+## ✨ Features
+
+- 📦 **Create Vesting Accounts** for companies/projects.  
+- 👩‍💼 **Add Employee Vesting Schedules** with start time, end time, cliff, and total token allocation.  
+- 🔑 **Programmatic Account Management** via Anchor smart contract.  
+- 💳 **Token Program Integration** using `@solana/spl-token`.  
+
+---
+
+## 🛠️ Tech Stack
+
+- **Blockchain**: [Solana](https://solana.com/)  
+- **Smart Contracts**: [Anchor Framework](https://book.anchor-lang.com/)  
+- **Frontend**: React + Next.js + TypeScript  
+- **Wallet Integration**: [Solana Wallet Adapter](https://github.com/solana-labs/wallet-adapter)  
+- **UI/UX**: [Sonner](https://sonner.emilkowal.ski/) for toasts  
+
+
 This is a Next.js app containing:
 
 - Tailwind CSS setup for styling
