@@ -5,6 +5,11 @@
 A Solana-based token vesting application built with **Anchor**, **React**, and **TypeScript**.  
 This dApp allows companies to create vesting accounts and allocate tokens to employees with configurable vesting schedules (start time, end time, cliff, and total amount).  
 
+## 🎥 Demo
+You can check out the demo here:  
+[Watch Demo](https://drive.google.com/drive/folders/1SAtV6AXonKTQpBxxVy_8NxD6_Ma1yXCz?usp=sharing)
+
+
 ---
 
 ## ✨ Features
